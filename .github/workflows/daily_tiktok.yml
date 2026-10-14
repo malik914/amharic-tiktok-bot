@@ -1,14 +1,20 @@
+
 name: Daily Amharic Comedy TikTok Bot
 
 on:
   schedule:
-    # በየቀኑ ከሰዓት 12:00 ሰዓት (በኢትዮጵያ አቆጣጠር / 15:00 UTC) በራሱ ይነሳል
+    # Daily at 18:00 Ethiopia time (15:00 UTC)
     - cron: '0 15 * * *'
-  workflow_dispatch: # በፈለግከው ሰዓት በእጅህ "Run workflow" ብለህ ለመሞከር ያስችልሃል
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   generate-and-post:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -17,16 +23,24 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install google-genai requests
+          python -m pip install --upgrade pip
+          python -m pip install google-genai requests pillow "moviepy<2.0" imageio-ffmpeg
 
-      - name: Generate Amharic Comedy Video & Post to TikTok
+      - name: Check required API key
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python -c "import os, sys; sys.exit(0 if os.environ.get('GEMINI_API_KEY') else 'ERROR: GEMINI_API_KEY secret is missing')"
+
+      - name: Generate Amharic Comedy Video
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          ENABLE_TIKTOK_POST: "false"
           TIKTOK_POST_MODE: "DIRECT_POST"
           VEO_MODEL: "veo-3.1-fast-generate-preview"
         run: python amharic_comedy_bot.py
