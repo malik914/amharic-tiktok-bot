@@ -1,0 +1,32 @@
+name: Daily Amharic Comedy TikTok Bot
+
+on:
+  schedule:
+    # በየቀኑ ከሰዓት 12:00 ሰዓት (በኢትዮጵያ አቆጣጠር / 15:00 UTC) በራሱ ይነሳል
+    - cron: '0 15 * * *'
+  workflow_dispatch: # በፈለግከው ሰዓት በእጅህ "Run workflow" ብለህ ለመሞከር ያስችልሃል
+
+jobs:
+  generate-and-post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install google-genai requests
+
+      - name: Generate Amharic Comedy Video & Post to TikTok
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TIKTOK_ACCESS_TOKEN: ${{ secrets.TIKTOK_ACCESS_TOKEN }}
+          TIKTOK_POST_MODE: "DIRECT_POST"
+          VEO_MODEL: "veo-3.1-fast-generate-preview"
+        run: python amharic_comedy_bot.py
