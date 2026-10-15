@@ -1,13 +1,12 @@
+from pathlib import Path
 
-import json
+code = r'''import json
 import os
 import time
 import wave
-import urllib.parse
 from pathlib import Path
 
-import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 from google import genai
 from google.genai import types
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
@@ -20,7 +19,7 @@ from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 TIKTOK_ACCESS_TOKEN = os.environ.get("TIKTOK_ACCESS_TOKEN")
 
-# Posting stays OFF until you explicitly enable it.
+# Posting stays OFF until explicitly enabled in GitHub Actions.
 ENABLE_TIKTOK_POST = (
     os.environ.get("ENABLE_TIKTOK_POST", "false").lower() == "true"
 )
@@ -37,21 +36,21 @@ FPS = 24
 
 
 def generate_comedy_package(client):
-    """Generate an Amharic comedy script and two image prompts."""
+    """Generate an Amharic comedy script and two scene prompts."""
 
     instruction = """
 You are an Ethiopian Amharic comedy writer.
 
 Create a short, funny, original conversation between two Ethiopian
-characters in a familiar setting such as a taxi, cafe, family home,
+adult characters in a familiar setting such as a taxi, cafe, family home,
 or among friends in Addis Ababa.
 
 Return valid JSON only, using exactly these keys:
 {
   "dialogue_script": "Speaker1: ...\\nSpeaker2: ...",
   "scene_prompts": [
-    "Detailed photorealistic Ethiopian comedy scene, vertical portrait",
-    "Detailed photorealistic Ethiopian comedy punchline scene, vertical portrait"
+    "Detailed scene description for the first half of the joke",
+    "Detailed scene description for the punchline"
   ],
   "tiktok_title": "Short Amharic title with relevant hashtags"
 }
@@ -60,9 +59,7 @@ Rules:
 - Dialogue must be in natural Amharic.
 - Make it funny, concise, and suitable for a short video.
 - Include exactly two speakers named Speaker1 and Speaker2.
-- No subtitles, captions, signs, written words, or watermarks in images.
-- Image prompts should depict Ethiopian adults and the same characters
-  consistently across both scenes.
+- Describe the same two characters consistently in both scenes.
 - Keep the TikTok title short.
 """
 
@@ -147,6 +144,7 @@ def generate_dialogue_audio(client, dialogue_script, wav_path):
             "and the API error shown in the workflow logs."
         )
 
+    # Gemini TTS commonly returns raw PCM data. Save it as a WAV file.
     with wave.open(str(wav_path), "wb") as wav_file:
         wav_file.setnchannels(1)
         wav_file.setsampwidth(2)
@@ -158,46 +156,120 @@ def generate_dialogue_audio(client, dialogue_script, wav_path):
 
 
 def download_scene_image(prompt, output_path, seed):
-    """Request a scene image from the external Pollinations service."""
+    """
+    Draw a local cartoon scene using Pillow.
+    This avoids Pollinations and its previous HTTP 402 payment error.
+    Note: these are simple illustrations, not AI-generated photographs.
+    """
 
-    encoded_prompt = urllib.parse.quote(
-        prompt
-        + ", photorealistic, Ethiopian people, portrait 9:16, "
-          "no text, no letters, no subtitles, no watermark"
-    )
+    import random
 
-    url = (
-        "https://image.pollinations.ai/prompt/"
-        f"{encoded_prompt}?width={WIDTH}&height={HEIGHT}"
-        f"&seed={seed}&nologo=true"
-    )
+    rng = random.Random(seed)
+    img = Image.new("RGB", (WIDTH, HEIGHT), (238, 205, 160))
+    draw = ImageDraw.Draw(img)
 
-    print(f"Generating scene image {seed}...")
+    # Cafe wall and floor
+    draw.rectangle((0, 0, WIDTH, 1320), fill=(239, 207, 164))
+    draw.rectangle((0, 1320, WIDTH, HEIGHT), fill=(117, 77, 51))
 
-    response = requests.get(
-        url,
-        timeout=(20, 180),
-        headers={"User-Agent": "AmharicComedyBot/1.0"},
-    )
-    response.raise_for_status()
+    # Window and outdoor sky
+    draw.rounded_rectangle((65, 150, 455, 620), radius=18, fill=(116, 190, 216))
+    draw.rectangle((245, 150, 267, 620), fill=(247, 239, 215))
+    draw.rectangle((65, 370, 455, 392), fill=(247, 239, 215))
 
-    if not response.headers.get("Content-Type", "").startswith("image/"):
-        raise RuntimeError(
-            "Image service did not return an image. Try again later."
+    # Wall decoration
+    draw.ellipse((760, 180, 930, 350), fill=(214, 167, 83))
+    draw.ellipse((790, 210, 900, 320), fill=(239, 207, 164))
+
+    # Character positions; slight variation between scenes.
+    characters = [
+        (315, (48, 111, 177), (40, 28, 22)),
+        (765, (177, 63, 54), (35, 24, 20)),
+    ]
+
+    for index, (cx, shirt, hair) in enumerate(characters):
+        bob = rng.randint(-8, 8)
+
+        # Body and arms
+        draw.rounded_rectangle(
+            (cx - 155, 850 + bob, cx + 155, 1430),
+            radius=80,
+            fill=shirt,
+        )
+        draw.rounded_rectangle(
+            (cx - 220, 930 + bob, cx - 125, 1190),
+            radius=42,
+            fill=shirt,
+        )
+        draw.rounded_rectangle(
+            (cx + 125, 930 + bob, cx + 220, 1190),
+            radius=42,
+            fill=shirt,
         )
 
-    with open(output_path, "wb") as image_file:
-        image_file.write(response.content)
+        # Neck, ears, face
+        skin = (145, 91, 59)
+        draw.rectangle((cx - 42, 775 + bob, cx + 42, 900 + bob), fill=skin)
+        draw.ellipse((cx - 125, 515 + bob, cx - 78, 610 + bob), fill=skin)
+        draw.ellipse((cx + 78, 515 + bob, cx + 125, 610 + bob), fill=skin)
+        draw.ellipse((cx - 105, 475 + bob, cx + 105, 825 + bob), fill=skin)
 
-    # Validate and convert the returned image to RGB.
-    with Image.open(output_path) as image:
-        image.convert("RGB").resize((WIDTH, HEIGHT)).save(output_path, "JPEG")
+        # Hair
+        draw.pieslice(
+            (cx - 112, 445 + bob, cx + 112, 670 + bob),
+            180,
+            360,
+            fill=hair,
+        )
 
+        # Eyebrows, eyes, nose and smile
+        draw.line(
+            (cx - 68, 625 + bob, cx - 25, 615 + bob),
+            fill=hair,
+            width=12,
+        )
+        draw.line(
+            (cx + 25, 615 + bob, cx + 68, 625 + bob),
+            fill=hair,
+            width=12,
+        )
+        draw.ellipse((cx - 60, 645 + bob, cx - 30, 680 + bob), fill=(25, 22, 20))
+        draw.ellipse((cx + 30, 645 + bob, cx + 60, 680 + bob), fill=(25, 22, 20))
+        draw.line((cx, 675 + bob, cx - 12, 720 + bob), fill=(105, 61, 42), width=8)
+
+        # Change the mouth slightly for the punchline scene.
+        if seed % 2:
+            draw.ellipse((cx - 48, 735 + bob, cx + 48, 780 + bob), fill=(70, 25, 25))
+        else:
+            draw.arc(
+                (cx - 55, 725 + bob, cx + 55, 795 + bob),
+                0, 180, fill=(70, 25, 25), width=10
+            )
+
+    # Cafe table and cups
+    draw.rounded_rectangle((65, 1195, 1015, 1305), radius=22, fill=(91, 52, 33))
+    draw.rectangle((130, 1290, 170, 1510), fill=(91, 52, 33))
+    draw.rectangle((910, 1290, 950, 1510), fill=(91, 52, 33))
+
+    for cx in (420, 660):
+        draw.rounded_rectangle(
+            (cx - 42, 1125, cx + 42, 1205),
+            radius=12,
+            fill=(255, 246, 225),
+        )
+        draw.ellipse((cx - 42, 1110, cx + 42, 1140), fill=(255, 246, 225))
+        draw.arc((cx + 25, 1140, cx + 70, 1190), 270, 90, fill=(255, 246, 225), width=9)
+
+    # Small scene marker shapes only; do not draw any text.
+    draw.ellipse((500, 250, 555, 305), fill=(248, 224, 111))
+    draw.ellipse((520, 265, 530, 275), fill=(75, 55, 35))
+
+    img.save(output_path, "JPEG", quality=92)
     return str(output_path)
 
 
 def build_video(client, comedy_data):
-    """Combine generated scene images and audio into a vertical MP4."""
+    """Combine locally drawn scene images and generated audio into a vertical MP4."""
 
     prompts = comedy_data.get("scene_prompts", [])[:2]
     if not prompts:
@@ -279,7 +351,6 @@ def post_to_tiktok(video_path, title):
         "Content-Type": "application/json; charset=UTF-8",
     }
 
-    # Do not silently fall back to a different publishing mode.
     init_url = "https://open.tiktokapis.com/v2/post/publish/video/init/"
 
     payload = {
@@ -354,7 +425,6 @@ def main():
 
     video_path = build_video(client, comedy_data)
 
-    # Keep posting disabled unless explicitly enabled in repository settings.
     if not ENABLE_TIKTOK_POST:
         print(
             "Video generation completed. TikTok posting is disabled. "
@@ -367,3 +437,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+'''
+path = Path("/mnt/data/amharic_comedy_bot_fixed.py")
+path.write_text(code, encoding="utf-8")
+print(f"Created: {path}\nLines: {len(code.splitlines())}\nBytes: {path.stat().st_size}")
